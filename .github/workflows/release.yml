@@ -8,28 +8,66 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows, os: ubuntu-latest, platform: "windows/amd64" }
+          - { name: linux, os: ubuntu-latest, platform: "linux/amd64,linux/arm64" }
+          - { name: macos, os: macos-latest, platform: "darwin/universal" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Build Windows exe
+      - name: Build
+        run: go tool mygo build -platform "${{ matrix.platform }}" -skip-notarize
+      - name: Package
+        shell: bash
         run: |
-          set -e
+          set -euxo pipefail
+          V="$GITHUB_REF_NAME"
           mkdir -p dist
-          if go tool mygo build -platform windows/amd64; then
-            cp build/windows-amd64/Notepad.exe dist/Notepad.exe
-          else
-            echo "mygo CLI build failed; falling back to go build"
-            GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-H windowsgui" -o dist/Notepad.exe .
-          fi
-          cd dist && zip -j "Notepad-${GITHUB_REF_NAME}-windows-amd64.zip" Notepad.exe
+          find build -maxdepth 2 | sort
+          case "${{ matrix.name }}" in
+            windows)
+              cp build/windows-amd64/Notepad.exe dist/Notepad.exe
+              (cd build/windows-amd64 && zip -j "../../dist/Notepad-$V-windows-amd64.zip" Notepad.exe)
+              ;;
+            linux)
+              for a in amd64 arm64; do
+                tar -C build -czf "dist/Notepad-$V-linux-$a.tar.gz" "linux-$a"
+                for d in build/linux-$a/*.deb; do [ -e "$d" ] && cp "$d" "dist/Notepad-$V-linux-$a.deb"; done
+              done
+              ;;
+            macos)
+              app=$(find build -maxdepth 2 -name '*.app' | head -1)
+              ditto -c -k --sequesterRsrc --keepParent "$app" "dist/Notepad-$V-macos-universal.zip"
+              for d in $(find build -maxdepth 2 -name '*.dmg'); do cp "$d" "dist/Notepad-$V-macos-universal.dmg"; done
+              ;;
+          esac
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.name }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ls -la dist
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag \
-            dist/Notepad.exe "dist/Notepad-${GITHUB_REF_NAME}-windows-amd64.zip"
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag dist/*
