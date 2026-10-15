@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -53,7 +56,78 @@ func (n *note) view(c *ui.Context) {
 	})
 }
 
+// themeFile is where the chosen appearance is kept, in PathUserData.
+func themeFile() string {
+	dir, err := mygo.App.Path(mygo.PathUserData)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "theme.txt")
+}
+
+func loadTheme() mygo.ThemeSource {
+	if f := themeFile(); f != "" {
+		if b, err := os.ReadFile(f); err == nil {
+			switch s := mygo.ThemeSource(strings.TrimSpace(string(b))); s {
+			case mygo.ThemeLight, mygo.ThemeDark, mygo.ThemeSystem:
+				return s
+			}
+		}
+	}
+	return mygo.ThemeSystem
+}
+
+func saveTheme(s mygo.ThemeSource) {
+	if f := themeFile(); f != "" {
+		if err := os.WriteFile(f, []byte(s), 0o644); err != nil {
+			log.Println("saving theme:", err)
+		}
+	}
+}
+
+var menu *mygo.Menu
+
+// setTheme applies an appearance to every window, checks its menu item and
+// remembers it for the next launch.
+func setTheme(s mygo.ThemeSource) {
+	mygo.Theme.SetSource(s)
+	if it := menu.ItemByID("theme-" + string(s)); it != nil {
+		it.SetChecked(true)
+	}
+	saveTheme(s)
+}
+
+func themeItem(label string, s mygo.ThemeSource, current mygo.ThemeSource) *mygo.MenuItem {
+	return &mygo.MenuItem{
+		ID: "theme-" + string(s), Label: label, Type: mygo.MenuItemRadio, Checked: s == current,
+		Click: func(*mygo.MenuItem, *mygo.Window) { setTheme(s) },
+	}
+}
+
 func main() {
+	current := loadTheme()
+	mygo.Theme.SetSource(current)
+	menu = mygo.NewMenu([]*mygo.MenuItem{
+		{Role: mygo.RoleAppMenu},
+		{Role: mygo.RoleFileMenu},
+		{Role: mygo.RoleEditMenu},
+		{Label: "View", Submenu: []*mygo.MenuItem{
+			{Label: "Theme", Submenu: []*mygo.MenuItem{
+				themeItem("System", mygo.ThemeSystem, current),
+				themeItem("Light", mygo.ThemeLight, current),
+				themeItem("Dark", mygo.ThemeDark, current),
+			}},
+			{Label: "Toggle Light/Dark", Accelerator: "CmdOrCtrl+Shift+D", Click: func(*mygo.MenuItem, *mygo.Window) {
+				if mygo.Theme.IsDark() {
+					setTheme(mygo.ThemeLight)
+				} else {
+					setTheme(mygo.ThemeDark)
+				}
+			}},
+		}},
+		{Role: mygo.RoleWindowMenu},
+	})
+	mygo.App.SetMenu(menu)
 	mygo.NewDocuments(mygo.DocumentsOptions[string]{
 		Types: []mygo.DocumentType{{Name: "Text Document", Extensions: []string{"txt", "log", "md", "ini", "csv"}}},
 		Read: func(r io.Reader) (string, error) {
