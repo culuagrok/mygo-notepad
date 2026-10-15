@@ -46,7 +46,7 @@ jobs:
             macos)
               app=$(find build -maxdepth 2 -name '*.app' | head -1)
               ditto -c -k --sequesterRsrc --keepParent "$app" "dist/Notepad-$V-macos-universal.zip"
-              for d in $(find build -maxdepth 2 -name '*.dmg'); do cp "$d" "dist/Notepad-$V-macos-universal.dmg"; done
+              for d in build/darwin-universal/*.dmg; do [ -e "$d" ] && cp "$d" "dist/Notepad-$V-macos-universal.dmg"; done
               ;;
           esac
           ls -la dist
