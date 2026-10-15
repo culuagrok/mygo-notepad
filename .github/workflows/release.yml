@@ -32,21 +32,18 @@ jobs:
           V="$GITHUB_REF_NAME"
           mkdir -p dist
           find build -maxdepth 2 | sort
+          # Release rule: only zip archives named *-portable.zip; never bare binaries.
           case "${{ matrix.name }}" in
             windows)
-              cp build/windows-amd64/Notepad.exe dist/Notepad.exe
-              (cd build/windows-amd64 && zip -j "../../dist/Notepad-$V-windows-amd64.zip" Notepad.exe)
+              (cd build/windows-amd64 && zip -r "../../dist/Notepad-$V-windows-amd64-portable.zip" .)
               ;;
             linux)
               for a in amd64 arm64; do
-                tar -C build -czf "dist/Notepad-$V-linux-$a.tar.gz" "linux-$a"
-                for d in build/linux-$a/*.deb; do [ -e "$d" ] && cp "$d" "dist/Notepad-$V-linux-$a.deb"; done
+                (cd build && zip -ry "../dist/Notepad-$V-linux-$a-portable.zip" "linux-$a" -x '*.deb' '*.tar.gz')
               done
               ;;
             macos)
-              app=$(find build -maxdepth 2 -name '*.app' | head -1)
-              ditto -c -k --sequesterRsrc --keepParent "$app" "dist/Notepad-$V-macos-universal.zip"
-              for d in build/darwin-universal/*.dmg; do [ -e "$d" ] && cp "$d" "dist/Notepad-$V-macos-universal.dmg"; done
+              ditto -c -k --sequesterRsrc --keepParent build/darwin-universal/Notepad.app "dist/Notepad-$V-macos-universal-portable.zip"
               ;;
           esac
           ls -la dist
@@ -70,4 +67,4 @@ jobs:
         run: |
           ls -la dist
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag dist/*
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag dist/*-portable.zip
